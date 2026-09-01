@@ -1,0 +1,12 @@
+{
+  "name": "suhayo-agent-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local, owner-gated chat command center for coding agents.",
+  "scripts": {
+    "start": "node agent-hub.mjs",
+    "web": "node web-server.mjs",
+    "check": "node --check agent-hub.mjs && node --check web-server.mjs && node --check public/app.js",
+    "test": "node --test"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "port": 4317,
+  "agents": {
+    "claude": {
+      "enabled": false,
+      "command": "claude",
+      "workspace": "D:\\trialroom-app"
+    },
+    "codex": {
+      "enabled": false,
+      "command": "codex",
+      "workspace": "D:\\trialroom-app"
+    }
+  },
+  "sourceOfTruth": {
+    "documentation": "D:\\personal_products\\tryon-doc",
+    "regressionAssets": "D:\\personal_products\\vton-img"
+  }
+}
