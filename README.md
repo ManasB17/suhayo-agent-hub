@@ -11,7 +11,10 @@ Modern coding agents are powerful but difficult to operate as a team. A project 
 - Reconstruct the current task state before another agent can review or continue it.
 - Prevent an agent from treating an investigation as permission to implement or deploy.
 
-Agent Hub creates a local task room where the owner can route work with `@claude`, `@codex`, or `@both`. The task history is persisted locally and supplied as a bounded handoff to the next agent. The owner remains the sole authority for implementation scope.
+Agent Hub creates a local task room where the owner can route distinct quoted
+assignments such as `@chatgpt "review this" @claude "investigate that"`. Task,
+run, session, and handoff history is persisted locally. The owner remains the
+sole authority for implementation scope.
 
 ## Design goals
 
@@ -29,14 +32,15 @@ Agent Hub creates a local task room where the owner can route work with `@claude
 npm start
 ```
 
-Use the `suhayo>` prompt:
+Use the `agent-hub>` prompt:
 
 ```text
-@claude investigate the current regression evidence
-@codex challenge the proposal and identify missing tests
-@both prepare the owner decision
+@claude "Investigate the current regression evidence."
+@chatgpt "Challenge the proposal and identify missing tests."
 /status
 /approve Implement backend candidate evaluation only. No deployment or paid production calls.
+/members
+/runs
 ```
 
 Run `/help` for the complete command list.
@@ -58,11 +62,13 @@ Requirements:
 
 The repository includes a safe starting `config.json`: Claude and Codex are registered but disabled. Enable an agent only after verifying its local command and workspace path. Machine-specific configuration is ignored by Git; `config.example.json` is the portable reference configuration.
 
-To register another installed CLI from the terminal:
+To invite another supported installed CLI from the terminal:
 
 ```text
-/agent add <name> <command>
-/agent enable <name>
+/invite grok grok architect D:\path\to\project
+/auth grok
+/login grok oauth
+/enable grok
 ```
 
 Generic agents begin disabled. Their command behavior should be verified before they are used on a project workspace.
@@ -77,7 +83,10 @@ This is a coordination layer, not a replacement for repository protections. Proj
 
 ## Data and privacy
 
-Task history is written to `data/state.json` on the local device. Do not commit that file: it can contain project context and agent output. The application does not send data to a relay service. Agent CLIs may independently communicate with their configured providers.
+Task history is written to the append-only `data/events.jsonl` log on the local
+device. Do not commit it: it can contain project context and agent output. The
+application does not send data to a relay service. Agent CLIs independently
+communicate with their configured providers.
 
 ## Development
 
@@ -88,13 +97,19 @@ npm test
 
 The project uses Node.js built-ins and has no runtime npm dependencies. JavaScript uses ESM, descriptive names, 2-space indentation, and `node --check` as a baseline syntax gate. There is currently no Python code in this repository; any future Python contribution should follow PEP 8, use type annotations where practical, and include focused tests.
 
+## Agent rules
+
+`AGENT_RULES.md` is the shared operating policy. `AGENTS.md` and `CLAUDE.md`
+make Codex and Claude Code discover that policy from the repository. The policy
+prohibits direct EC2 writes and deployment without a separate exact owner
+instruction. See [docs/OPERATING_MODEL.md](docs/OPERATING_MODEL.md).
+
 ## Roadmap
 
 - Multiple named tasks and task selection
-- Agent-specific resume/session adapters
-- Structured handoff summaries
-- Configurable approval roles for teams
-- Adapter packages for additional local agent CLIs
+- Packaged adapters for additional local agent CLIs
+- Native host runner paired with the Docker coordinator
+- Installable progressive web application and desktop launcher
 
 ## Contributing
 
