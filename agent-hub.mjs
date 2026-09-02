@@ -1,16 +1,26 @@
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import { loadConfig, projectRoot } from './src/config.mjs';
 import { requestJson, waitForCoordinator } from './src/http-client.mjs';
 
 const settings = loadConfig();
-const baseUrl = `http://127.0.0.1:${settings.port}`;
+const port = Number(process.env.AGENT_HUB_PORT ?? settings.port);
+const baseUrl = `http://127.0.0.1:${port}`;
 
 async function ensureCoordinator() {
   try {
     await waitForCoordinator(baseUrl, 300);
     return;
   } catch {
+    try {
+      await requestJson(baseUrl, '/api/state');
+      throw new Error(
+        `An older Agent Hub is using port ${port}. Stop it or choose AGENT_HUB_PORT.`
+      );
+    } catch (error) {
+      if (error.message.startsWith('An older Agent Hub')) throw error;
+    }
     const child = spawn(process.execPath, ['web-server.mjs'], {
       cwd: projectRoot,
       detached: true,
@@ -45,15 +55,27 @@ function printHelp() {
   console.log(`
 Agent Hub commands
 
-  @claude <request>       Route work to Claude Code
-  @codex <request>        Route work to Codex
-  @both <request>         Route work to every enabled agent
+  @claude "request"       Route work to one member
+  @codex "one" @claude "another"
   /status                 Show task state and recent handoff
   /approve <exact scope>  Record owner approval
   /hold                   Return the task to OWNER_REVIEW
-  /agents                 List configured agents
+  /members                List room members
+  /invite <name> <provider> <role> <workspace>
+  /auth <name>            Check provider login
+  /login <name> <method>  Start provider OAuth or device login
+  /enable <name>          Allow mention routing to a connected member
+  /disable <name>         Pause mention routing
+  /runs                   List recent run states
+  /cancel <run-id>        Cancel queued or running work
+  /reset-session <name>   Start fresh on that member's next assignment
   /exit                   Leave the terminal client
 `);
+}
+
+function splitArguments(input) {
+  return [...input.matchAll(/"((?:\\.|[^"\\])*)"|(\S+)/g)]
+    .map((match) => match[1] ?? match[2]);
 }
 
 async function handleInput(input) {
@@ -67,11 +89,73 @@ async function handleInput(input) {
     return true;
   }
 
-  if (input === '/agents') {
-    const { agents } = await requestJson(baseUrl, '/api/agents');
-    for (const agent of agents) {
-      console.log(`@${agent.name}: ${agent.enabled ? 'enabled' : 'disabled'}`);
+  if (input === '/members' || input === '/agents') {
+    const { members } = await requestJson(baseUrl, '/api/members');
+    for (const member of members) {
+      console.log(
+        `@${member.name}: ${member.role} | ${member.authStatus} | ${member.enabled ? 'enabled' : 'disabled'}`
+      );
     }
+    return true;
+  }
+
+  if (input === '/runs') {
+    const { runs } = await requestJson(baseUrl, '/api/runs');
+    for (const run of runs.slice(-10)) {
+      console.log(`${run.id} | @${run.memberName} | ${run.status}`);
+    }
+    return true;
+  }
+
+  if (input.startsWith('/invite ')) {
+    const [name, adapterId, role, workspace] = splitArguments(
+      input.slice('/invite '.length)
+    );
+    if (!name || !adapterId || !role || !workspace) {
+      throw new Error('Usage: /invite <name> <provider> <role> <workspace>');
+    }
+    await requestJson(baseUrl, '/api/members/invite', {
+      method: 'POST',
+      body: JSON.stringify({ name, adapterId, role, workspace })
+    });
+    console.log(`@${name} invited. Check authentication before enabling.`);
+    return true;
+  }
+
+  const memberCommand = input.match(
+    /^\/(auth|enable|disable|reset-session)\s+([a-z][a-z0-9_-]{1,31})$/
+  );
+  if (memberCommand) {
+    const [, action, name] = memberCommand;
+    const path = action === 'auth'
+      ? `/api/members/${name}/auth/check`
+      : action === 'reset-session'
+        ? `/api/members/${name}/session/reset`
+        : `/api/members/${name}/${action}`;
+    const result = await requestJson(baseUrl, path, { method: 'POST', body: '{}' });
+    console.log(result.message ?? result.status ?? `@${name} updated.`);
+    return true;
+  }
+
+  const loginCommand = input.match(
+    /^\/login\s+([a-z][a-z0-9_-]{1,31})\s+(oauth|device)$/
+  );
+  if (loginCommand) {
+    const [, name, method] = loginCommand;
+    const result = await requestJson(baseUrl, `/api/members/${name}/auth/login`, {
+      method: 'POST',
+      body: JSON.stringify({ method })
+    });
+    console.log(result.message);
+    return true;
+  }
+
+  if (input.startsWith('/cancel ')) {
+    const runId = input.slice('/cancel '.length).trim();
+    const { run } = await requestJson(baseUrl, `/api/runs/${runId}/cancel`, {
+      method: 'POST', body: '{}'
+    });
+    console.log(`${run.id}: ${run.status}`);
     return true;
   }
 
@@ -105,15 +189,22 @@ await ensureCoordinator();
 console.log('Agent Hub local command center');
 console.log('Type /help for commands.');
 
-const terminal = createInterface({ input: process.stdin, output: process.stdout });
-while (true) {
-  const input = (await terminal.question('\nagent-hub> ')).trim();
-  if (!input) continue;
-
-  try {
-    if (!(await handleInput(input))) break;
-  } catch (error) {
-    console.error(error.message);
+if (!process.stdin.isTTY) {
+  const commands = readFileSync(0, 'utf8').split(/\r?\n/).filter(Boolean);
+  for (const command of commands) {
+    if (!(await handleInput(command.trim()))) break;
   }
+} else {
+  const terminal = createInterface({ input: process.stdin, output: process.stdout });
+  while (true) {
+    const input = (await terminal.question('\nagent-hub> ')).trim();
+    if (!input) continue;
+
+    try {
+      if (!(await handleInput(input))) break;
+    } catch (error) {
+      console.error(error.message);
+    }
+  }
+  terminal.close();
 }
-terminal.close();
