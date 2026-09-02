@@ -6,6 +6,7 @@ import { EventStore } from './event-store.mjs';
 import { runAgent } from './agent-runner.mjs';
 import { parseAssignments, resolveAssignments } from './mentions.mjs';
 import { createEvent, createMessage } from './state.mjs';
+import { publicAdapterCatalog } from './adapters/catalog.mjs';
 
 const contentTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -156,6 +157,10 @@ export function createCoordinator(options = {}) {
           aliases: agent.aliases ?? []
         }));
         return sendJson(response, 200, { agents });
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/adapters') {
+        return sendJson(response, 200, { adapters: publicAdapterCatalog() });
       }
 
       if (request.method === 'POST' && url.pathname === '/api/messages') {
