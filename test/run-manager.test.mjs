@@ -27,7 +27,7 @@ function fixture(runner, timeoutMs = 500) {
 test('runs move through durable queued, running, and succeeded states', async () => {
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
-  const { root, store, start } = fixture(async () => {
+  const { root, store, manager, start } = fixture(async () => {
     await gate;
     return { ok: true, output: 'Completed safely.' };
   });
@@ -37,7 +37,7 @@ test('runs move through durable queued, running, and succeeded states', async ()
     await wait(10);
     assert.equal(store.readState().runs[0].status, 'RUNNING');
     release();
-    await wait(10);
+    await manager.whenIdle();
     const state = store.readState();
     assert.equal(state.runs[0].status, 'SUCCEEDED');
     assert.equal(state.tasks[0].messages[0].runId, run.id);
@@ -49,7 +49,7 @@ test('runs move through durable queued, running, and succeeded states', async ()
 test('one member runs sequentially while different members run independently', async () => {
   const active = new Set();
   const observations = [];
-  const { root, store, start } = fixture(async (name, agent, task, message) => {
+  const { root, store, manager, start } = fixture(async (name, agent, task, message) => {
     observations.push({ name, text: message.text, active: [...active] });
     active.add(name);
     await wait(20);
@@ -61,7 +61,7 @@ test('one member runs sequentially while different members run independently', a
     start('first', 'claude');
     start('second', 'claude');
     start('parallel', 'codex');
-    await wait(70);
+    await manager.whenIdle();
     assert.deepEqual(observations.map(({ name, text }) => ({ name, text })), [
       { name: 'claude', text: 'first' },
       { name: 'codex', text: 'parallel' },
@@ -89,7 +89,7 @@ test('running work can be cancelled without recording a late response', async ()
     const run = start('cancel me');
     await wait(10);
     manager.cancel(run.id);
-    await wait(10);
+    await manager.whenIdle();
     const state = store.readState();
     assert.equal(state.runs[0].status, 'CANCELLED');
     assert.equal(state.tasks[0].messages.length, 0);
@@ -99,7 +99,7 @@ test('running work can be cancelled without recording a late response', async ()
 });
 
 test('run timeout aborts execution and records a bounded error', async () => {
-  const { root, store, start } = fixture(async (
+  const { root, store, manager, start } = fixture(async (
     name, agent, task, message, options
   ) => new Promise((resolve) => {
     options.signal.addEventListener('abort', () => {
@@ -109,7 +109,7 @@ test('run timeout aborts execution and records a bounded error', async () => {
 
   try {
     start('time out');
-    await wait(30);
+    await manager.whenIdle();
     const state = store.readState();
     assert.equal(state.runs[0].status, 'TIMED_OUT');
     assert.match(state.tasks[0].messages[0].text, /time limit/);

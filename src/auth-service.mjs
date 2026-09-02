@@ -1,11 +1,16 @@
 import { spawn } from 'node:child_process';
 import { getAdapter } from './adapters/catalog.mjs';
+import { prepareSpawn } from './command-resolver.mjs';
 
 const authenticationTimeoutMs = 5 * 60 * 1000;
 
 export function executeCommand(specification) {
   return new Promise((resolve) => {
-    const child = spawn(specification.command, specification.arguments, {
+    const prepared = prepareSpawn(
+      specification.command,
+      specification.arguments
+    );
+    const child = spawn(prepared.command, prepared.arguments, {
       cwd: specification.cwd,
       env: process.env,
       shell: false,
@@ -66,6 +71,10 @@ function claudeAuthenticated(output) {
 }
 
 export function parseAuthenticationStatus(adapterId, result) {
+  if (/not signed in|no auth credentials|login required|unauthenticated|access is denied/i
+    .test(result.output)) {
+    return 'login_required';
+  }
   if (!result.ok) return 'login_required';
   if (adapterId === 'claude') {
     return claudeAuthenticated(result.output) ? 'connected' : 'login_required';
@@ -91,9 +100,10 @@ export class AuthenticationService {
       cwd: member.workspace,
       purpose: 'authentication_status'
     });
+    const status = parseAuthenticationStatus(adapter.id, result);
     return {
-      status: parseAuthenticationStatus(adapter.id, result),
-      message: result.ok
+      status,
+      message: status === 'connected'
         ? 'Provider authentication status checked.'
         : 'Provider login is required.'
     };

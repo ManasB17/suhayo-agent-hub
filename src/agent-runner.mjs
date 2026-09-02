@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { prepareSpawn } from './command-resolver.mjs';
 
 function isApproved(task) {
   return task.status === 'OWNER_APPROVED' || task.status === 'IMPLEMENTING';
@@ -103,6 +104,10 @@ function parseJsonLines(output) {
     });
 }
 
+function stripAnsi(value) {
+  return value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+}
+
 function normalizeClaude(output) {
   try {
     const result = JSON.parse(output);
@@ -130,10 +135,13 @@ function normalizeEventStream(output) {
     if (event.type === 'assistant' && typeof event.message === 'string') {
       return [event.message];
     }
+    if (event.type === 'error' && typeof event.message === 'string') {
+      return [event.message];
+    }
     return [];
   }).filter(Boolean);
   return {
-    output: messages.join('\n\n') || output,
+    output: messages.join('\n\n') || stripAnsi(output),
     sessionId: sessionEvent?.thread_id
       ?? sessionEvent?.session_id
       ?? sessionEvent?.sessionId
@@ -157,9 +165,13 @@ export function runAgent(name, agent, task, ownerMessage, options = {}) {
     createPrompt(task, ownerMessage),
     options.sessionId
   );
+  const prepared = prepareSpawn(
+    specification.command,
+    specification.arguments
+  );
 
   return new Promise((resolve) => {
-    const child = spawn(specification.command, specification.arguments, {
+    const child = spawn(prepared.command, prepared.arguments, {
       cwd: agent.workspace,
       shell: false,
       signal: options.signal,

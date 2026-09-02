@@ -38,12 +38,21 @@ export class RunManager {
       .catch(() => undefined)
       .then(() => this.execute(run, configuration, task, message));
     this.memberQueues.set(memberName, execution);
-    execution.finally(() => {
+    const cleanup = () => {
       if (this.memberQueues.get(memberName) === execution) {
         this.memberQueues.delete(memberName);
       }
-    });
+    };
+    execution.then(cleanup, cleanup);
     return run;
+  }
+
+  async whenIdle(memberName) {
+    if (memberName) {
+      await (this.memberQueues.get(memberName) ?? Promise.resolve());
+      return;
+    }
+    await Promise.all([...this.memberQueues.values()]);
   }
 
   cancel(runId) {

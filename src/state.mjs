@@ -62,6 +62,13 @@ export function reduceEvent(state, event) {
     }
   }
 
+  if (event.type === 'MEMBER_ENABLED_SET') {
+    const member = nextState.members.find(
+      (candidate) => candidate.name === event.name
+    );
+    if (member) member.enabled = event.enabled;
+  }
+
   if (event.type === 'RUN_CREATED') {
     nextState.runs.push(event.run);
   }

@@ -85,6 +85,15 @@ test('provider output is normalized to assistant text and session id', () => {
     output: 'Codex response',
     sessionId: 'codex-session'
   });
+
+  const grokError = [
+    JSON.stringify({ type: 'error', message: 'Not signed in.' }),
+    '\u001b[33mWARN\u001b[0m credential path unavailable'
+  ].join('\n');
+  assert.deepEqual(normalizeAgentOutput('grok', grokError), {
+    output: 'Not signed in.',
+    sessionId: undefined
+  });
 });
 
 test('a member resumes its durable session while another starts independently', async () => {

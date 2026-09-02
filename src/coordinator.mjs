@@ -62,10 +62,16 @@ function configuredMembers(settings, state) {
       workspace: agent.workspace,
       command: agent.command,
       enabled: Boolean(agent.enabled),
+      aliases: agent.aliases ?? [],
       authStatus: 'unknown'
     });
   }
-  return [...durableMembers.values()];
+  return [...durableMembers.values()].map((member) => ({
+    ...member,
+    adapter: member.adapterId,
+    command: member.command
+      ?? getAdapter(member.adapterId)?.commands[0]
+  }));
 }
 
 function publicMember(member) {
@@ -226,6 +232,33 @@ export function createCoordinator(options = {}) {
         return sendJson(response, 200, { members });
       }
 
+      const enableMatch = url.pathname.match(
+        /^\/api\/members\/([a-z][a-z0-9_-]{1,31})\/(enable|disable)$/
+      );
+      if (request.method === 'POST' && enableMatch) {
+        const [, name, action] = enableMatch;
+        const state = store.readState();
+        const member = findMember(settings, state, name);
+        if (!member) return sendJson(response, 404, { error: 'Member not found.' });
+        if (action === 'enable' && member.authStatus !== 'connected') {
+          return sendJson(response, 409, {
+            error: 'Check provider authentication before enabling this member.'
+          });
+        }
+        if (!state.members.some((candidate) => candidate.name === name)) {
+          store.append(createEvent('MEMBER_INVITED', {
+            member: publicMember(member)
+          }));
+        }
+        store.append(createEvent('MEMBER_ENABLED_SET', {
+          name,
+          enabled: action === 'enable'
+        }));
+        return sendJson(response, 200, {
+          member: publicMember(findMember(settings, store.readState(), name))
+        });
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/members/invite') {
         const body = await readJsonBody(request);
         const name = body.name?.trim().toLowerCase();
@@ -295,11 +328,11 @@ export function createCoordinator(options = {}) {
         }
 
         const parsedAssignments = parseAssignments(body.text.trim());
-        const assignments = resolveAssignments(
-          parsedAssignments,
-          settings.agents ?? {}
-        );
         const state = store.readState();
+        const roomAgents = Object.fromEntries(
+          configuredMembers(settings, state).map((member) => [member.name, member])
+        );
+        const assignments = resolveAssignments(parsedAssignments, roomAgents);
         const task = activeTask(state);
         const ownerMessage = createMessage('owner', 'message', body.text.trim());
         store.append(createEvent('MESSAGE_ADDED', {

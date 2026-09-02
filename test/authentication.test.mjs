@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { AuthenticationService } from '../src/auth-service.mjs';
+import { parseAuthenticationStatus } from '../src/auth-service.mjs';
 import { createCoordinator } from '../src/coordinator.mjs';
 
 function listen(server) {
@@ -164,4 +165,11 @@ test('authentication state becomes durable for legacy configured agents', async 
     await close(server);
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('successful exit cannot hide a provider login failure', () => {
+  assert.equal(parseAuthenticationStatus('grok', {
+    ok: true,
+    output: 'Warning: No auth credentials. Not signed in.'
+  }), 'login_required');
 });
