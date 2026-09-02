@@ -11,6 +11,7 @@ export const defaultTask = Object.freeze({
 export function initialState() {
   return {
     activeTaskId: defaultTask.id,
+    members: [],
     tasks: [{ ...defaultTask, messages: [] }]
   };
 }
@@ -38,6 +39,24 @@ export function reduceEvent(state, event) {
     if (task) {
       task.status = event.status;
       task.approvedScope = event.approvedScope ?? '';
+    }
+  }
+
+  if (event.type === 'MEMBER_INVITED') {
+    const existingIndex = nextState.members.findIndex(
+      (member) => member.name === event.member.name
+    );
+    if (existingIndex === -1) nextState.members.push(event.member);
+    else nextState.members[existingIndex] = event.member;
+  }
+
+  if (event.type === 'MEMBER_AUTH_SET') {
+    const member = nextState.members.find(
+      (candidate) => candidate.name === event.name
+    );
+    if (member) {
+      member.authStatus = event.status;
+      member.authMessage = event.message;
     }
   }
 
