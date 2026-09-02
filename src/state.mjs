@@ -13,6 +13,7 @@ export function initialState() {
     activeTaskId: defaultTask.id,
     members: [],
     runs: [],
+    handoffs: [],
     sessions: {},
     tasks: [{ ...defaultTask, messages: [] }]
   };
@@ -91,6 +92,10 @@ export function reduceEvent(state, event) {
 
   if (event.type === 'SESSION_CLEARED') {
     delete nextState.sessions[event.memberName];
+  }
+
+  if (event.type === 'HANDOFF_CREATED') {
+    nextState.handoffs.push(event.handoff);
   }
 
   return nextState;

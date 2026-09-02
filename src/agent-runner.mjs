@@ -156,6 +156,16 @@ export function normalizeAgentOutput(adapterId, output) {
   return { output };
 }
 
+export function classifyAgentFailure(output) {
+  if (/context window|context limit|token limit|maximum context|usage limit/i.test(output)) {
+    return 'capacity_exhausted';
+  }
+  if (/not signed in|no auth credentials|authentication required/i.test(output)) {
+    return 'authentication_required';
+  }
+  return 'provider_error';
+}
+
 export function runAgent(name, agent, task, ownerMessage, options = {}) {
   const adapterId = agent.adapter ?? name;
   const specification = buildAgentCommand(
@@ -203,7 +213,10 @@ export function runAgent(name, agent, task, ownerMessage, options = {}) {
       finish({
         ok: code === 0,
         output: normalized.output || 'No response returned.',
-        sessionId: normalized.sessionId
+        sessionId: normalized.sessionId,
+        failureReason: code === 0
+          ? undefined
+          : classifyAgentFailure(rawOutput)
       });
     });
   });

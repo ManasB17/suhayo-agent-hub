@@ -118,3 +118,50 @@ test('run timeout aborts execution and records a bounded error', async () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('capacity exhaustion creates one role-compatible continuation handoff', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'agent-hub-handoff-'));
+  const store = new EventStore(root);
+  const calls = [];
+  const manager = new RunManager({
+    store,
+    runner: async (name, agent, task, message) => {
+      calls.push({ name, text: message.text });
+      return name === 'claude'
+        ? {
+            ok: false,
+            output: 'Context limit reached.',
+            failureReason: 'capacity_exhausted'
+          }
+        : { ok: true, output: 'Continued from checkpoint.' };
+    },
+    findFallback: ({ configuration }) => configuration.role === 'architect'
+      ? {
+          name: 'grok',
+          configuration: { role: 'architect', workspace: root }
+        }
+      : null
+  });
+
+  try {
+    manager.start({
+      memberName: 'claude',
+      configuration: { role: 'architect', workspace: root },
+      task: store.readState().tasks[0],
+      message: { assignmentId: 'assignment', text: 'Investigate the regression.' }
+    });
+    await manager.whenIdle();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await manager.whenIdle();
+
+    const state = store.readState();
+    assert.equal(state.handoffs.length, 1);
+    assert.equal(state.handoffs[0].fromMember, 'claude');
+    assert.equal(state.handoffs[0].toMember, 'grok');
+    assert.equal(state.runs[1].continuedFromRunId, state.runs[0].id);
+    assert.equal(state.runs[1].status, 'SUCCEEDED');
+    assert.match(calls[1].text, /Original instruction/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

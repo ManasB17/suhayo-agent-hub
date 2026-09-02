@@ -185,7 +185,18 @@ export function createCoordinator(options = {}) {
   const runManager = options.runManager ?? new RunManager({
     store,
     runner,
-    timeoutMs: options.runTimeoutMs
+    timeoutMs: options.runTimeoutMs,
+    findFallback: ({ memberName, configuration, state }) => {
+      const fallback = configuredMembers(settings, state).find((member) =>
+        member.name !== memberName
+        && member.enabled
+        && member.role === configuration.role
+        && (member.authStatus === 'connected' || member.authStatus === 'unknown')
+      );
+      return fallback
+        ? { name: fallback.name, configuration: fallback }
+        : null;
+    }
   });
 
   return createServer(async (request, response) => {

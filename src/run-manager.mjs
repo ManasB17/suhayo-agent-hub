@@ -13,15 +13,28 @@ function findRun(store, runId) {
 }
 
 export class RunManager {
-  constructor({ store, runner, timeoutMs = 10 * 60 * 1000 }) {
+  constructor({
+    store,
+    runner,
+    timeoutMs = 10 * 60 * 1000,
+    findFallback
+  }) {
     this.store = store;
     this.runner = runner;
     this.timeoutMs = timeoutMs;
     this.memberQueues = new Map();
     this.controllers = new Map();
+    this.findFallback = findFallback;
   }
 
-  start({ memberName, configuration, task, message }) {
+  start({
+    memberName,
+    configuration,
+    task,
+    message,
+    continuedFromRunId,
+    handoffDepth = 0
+  }) {
     const run = {
       id: randomUUID(),
       assignmentId: message.assignmentId,
@@ -31,6 +44,8 @@ export class RunManager {
       status: 'QUEUED',
       createdAt: new Date().toISOString()
     };
+    if (continuedFromRunId) run.continuedFromRunId = continuedFromRunId;
+    run.handoffDepth = handoffDepth;
     this.store.append(createEvent('RUN_CREATED', { run }));
 
     const previous = this.memberQueues.get(memberName) ?? Promise.resolve();
@@ -127,6 +142,9 @@ export class RunManager {
         }));
       }
       this.store.appendMany(events);
+      if (status === 'FAILED' && result.failureReason === 'capacity_exhausted') {
+        this.continueFromCapacityFailure(run, configuration, task, message);
+      }
     } catch (error) {
       if (findRun(this.store, run.id)?.status === 'CANCELLED') return;
       const status = timedOut ? 'TIMED_OUT' : 'FAILED';
@@ -152,5 +170,42 @@ export class RunManager {
       clearTimeout(timeout);
       this.controllers.delete(run.id);
     }
+  }
+
+  continueFromCapacityFailure(run, configuration, task, message) {
+    if (!this.findFallback || run.handoffDepth >= 1) return;
+    const fallback = this.findFallback({
+      memberName: run.memberName,
+      configuration,
+      state: this.store.readState()
+    });
+    if (!fallback) return;
+
+    const handoff = {
+      id: randomUUID(),
+      taskId: run.taskId,
+      assignmentId: run.assignmentId,
+      sourceRunId: run.id,
+      fromMember: run.memberName,
+      toMember: fallback.name,
+      reason: 'capacity_exhausted',
+      instruction: run.instruction,
+      createdAt: new Date().toISOString()
+    };
+    this.store.append(createEvent('HANDOFF_CREATED', { handoff }));
+    this.start({
+      memberName: fallback.name,
+      configuration: fallback.configuration,
+      task,
+      message: {
+        ...message,
+        text: [
+          `Continue @${run.memberName}'s assignment after provider capacity was exhausted.`,
+          `Original instruction: ${run.instruction}`
+        ].join('\n')
+      },
+      continuedFromRunId: run.id,
+      handoffDepth: run.handoffDepth + 1
+    });
   }
 }

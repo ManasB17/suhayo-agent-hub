@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import {
   buildAgentCommand,
+  classifyAgentFailure,
   normalizeAgentOutput
 } from '../src/agent-runner.mjs';
 import { EventStore } from '../src/event-store.mjs';
@@ -62,6 +63,17 @@ test('provider command builders start and resume independent sessions', () => {
   assert.deepEqual(grokArguments.slice(-4), [
     '--resume', 'grok-session', '--single', '/skill inspect'
   ]);
+});
+
+test('capacity failures are distinguished from authentication failures', () => {
+  assert.equal(
+    classifyAgentFailure('Maximum context window reached.'),
+    'capacity_exhausted'
+  );
+  assert.equal(
+    classifyAgentFailure('Not signed in. Authentication required.'),
+    'authentication_required'
+  );
 });
 
 test('provider output is normalized to assistant text and session id', () => {
