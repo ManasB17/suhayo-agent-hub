@@ -9,6 +9,8 @@ import { createEvent, createMessage } from './state.mjs';
 import { publicAdapterCatalog } from './adapters/catalog.mjs';
 import { getAdapter } from './adapters/catalog.mjs';
 import { AuthenticationService } from './auth-service.mjs';
+import { RunManager } from './run-manager.mjs';
+import { randomUUID } from 'node:crypto';
 
 const contentTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -101,7 +103,7 @@ async function dispatchAssignments(
   task,
   ownerMessage,
   assignments,
-  runner
+  runManager
 ) {
   if (!assignments.length) {
     store.append(createEvent('MESSAGE_ADDED', {
@@ -140,7 +142,7 @@ async function dispatchAssignments(
       continue;
     }
 
-    const assignmentId = ownerMessage.id;
+    const assignmentId = randomUUID();
     store.append(createEvent('MESSAGE_ADDED', {
       taskId: task.id,
       message: createMessage(
@@ -156,18 +158,13 @@ async function dispatchAssignments(
       text: instruction,
       assignmentId
     };
-    runner(name, configuration, store.readState().tasks.find(
-      (candidate) => candidate.id === task.id
-    ), targetedMessage).then((result) => {
-      store.append(createEvent('MESSAGE_ADDED', {
-        taskId: task.id,
-        message: createMessage(
-          name,
-          result.ok ? 'response' : 'error',
-          result.output,
-          { assignmentId }
-        )
-      }));
+    runManager.start({
+      memberName: name,
+      configuration,
+      task: store.readState().tasks.find(
+        (candidate) => candidate.id === task.id
+      ),
+      message: targetedMessage
     });
   }
 }
@@ -179,6 +176,11 @@ export function createCoordinator(options = {}) {
   const runner = options.runAgent ?? runAgent;
   const authentication = options.authentication
     ?? new AuthenticationService(options.executeCommand);
+  const runManager = options.runManager ?? new RunManager({
+    store,
+    runner,
+    timeoutMs: options.runTimeoutMs
+  });
 
   return createServer(async (request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1');
@@ -190,6 +192,16 @@ export function createCoordinator(options = {}) {
 
       if (request.method === 'GET' && url.pathname === '/api/state') {
         return sendJson(response, 200, store.readState());
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/runs') {
+        return sendJson(response, 200, { runs: store.readState().runs });
+      }
+
+      const cancelMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/cancel$/);
+      if (request.method === 'POST' && cancelMatch) {
+        const run = runManager.cancel(cancelMatch[1]);
+        return sendJson(response, 200, { run });
       }
 
       if (request.method === 'GET' && url.pathname === '/api/agents') {
@@ -288,7 +300,7 @@ export function createCoordinator(options = {}) {
           task,
           ownerMessage,
           assignments,
-          runner
+          runManager
         );
         return sendJson(response, 202, store.readState());
       }

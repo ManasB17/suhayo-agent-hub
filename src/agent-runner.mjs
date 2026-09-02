@@ -69,7 +69,7 @@ function commandFor(name, agent, prompt, approved) {
   return { command: agent.command, arguments: [prompt] };
 }
 
-export function runAgent(name, agent, task, ownerMessage) {
+export function runAgent(name, agent, task, ownerMessage, options = {}) {
   const approved = isApproved(task);
   const specification = commandFor(
     name,
@@ -81,7 +81,8 @@ export function runAgent(name, agent, task, ownerMessage) {
   return new Promise((resolve) => {
     const child = spawn(specification.command, specification.arguments, {
       cwd: agent.workspace,
-      shell: process.platform === 'win32',
+      shell: false,
+      signal: options.signal,
       windowsHide: true
     });
     let standardOutput = '';
@@ -93,14 +94,20 @@ export function runAgent(name, agent, task, ownerMessage) {
     child.stderr.on('data', (chunk) => {
       standardError += chunk;
     });
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
     child.on('error', (error) => {
-      resolve({ ok: false, output: `Could not start @${name}: ${error.message}` });
+      finish({ ok: false, output: `Could not start @${name}: ${error.message}` });
     });
     child.on('close', (code) => {
       const output = code === 0
         ? standardOutput.trim()
         : `${standardOutput}\n${standardError}`.trim();
-      resolve({ ok: code === 0, output: output || 'No response returned.' });
+      finish({ ok: code === 0, output: output || 'No response returned.' });
     });
   });
 }

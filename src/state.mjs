@@ -12,6 +12,7 @@ export function initialState() {
   return {
     activeTaskId: defaultTask.id,
     members: [],
+    runs: [],
     tasks: [{ ...defaultTask, messages: [] }]
   };
 }
@@ -57,6 +58,19 @@ export function reduceEvent(state, event) {
     if (member) {
       member.authStatus = event.status;
       member.authMessage = event.message;
+    }
+  }
+
+  if (event.type === 'RUN_CREATED') {
+    nextState.runs.push(event.run);
+  }
+
+  if (event.type === 'RUN_STATUS_SET') {
+    const run = nextState.runs.find((candidate) => candidate.id === event.runId);
+    if (run) {
+      run.status = event.status;
+      if (event.startedAt) run.startedAt = event.startedAt;
+      if (event.finishedAt) run.finishedAt = event.finishedAt;
     }
   }
 
