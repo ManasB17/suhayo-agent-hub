@@ -277,6 +277,17 @@ export function createCoordinator(options = {}) {
         return sendJson(response, 200, result);
       }
 
+      const sessionResetMatch = url.pathname.match(
+        /^\/api\/members\/([a-z][a-z0-9_-]{1,31})\/session\/reset$/
+      );
+      if (request.method === 'POST' && sessionResetMatch) {
+        const name = sessionResetMatch[1];
+        const member = findMember(settings, store.readState(), name);
+        if (!member) return sendJson(response, 404, { error: 'Member not found.' });
+        store.append(createEvent('SESSION_CLEARED', { memberName: name }));
+        return sendJson(response, 200, { status: 'cleared' });
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/messages') {
         const body = await readJsonBody(request);
         if (!body.text?.trim()) {

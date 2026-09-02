@@ -82,7 +82,10 @@ export class RunManager {
         configuration,
         task,
         message,
-        { signal: controller.signal }
+        {
+          signal: controller.signal,
+          sessionId: this.store.readState().sessions[run.memberName]?.id
+        }
       );
       const current = findRun(this.store, run.id);
       if (current?.status === 'CANCELLED') return;
@@ -91,7 +94,7 @@ export class RunManager {
       const output = timedOut
         ? `@${run.memberName} exceeded the local run time limit.`
         : result.output;
-      this.store.appendMany([
+      const events = [
         createEvent('MESSAGE_ADDED', {
           taskId: run.taskId,
           message: createMessage(
@@ -106,7 +109,15 @@ export class RunManager {
           status,
           finishedAt: new Date().toISOString()
         })
-      ]);
+      ];
+      if (result.sessionId) {
+        events.push(createEvent('SESSION_SET', {
+          memberName: run.memberName,
+          sessionId: result.sessionId,
+          updatedAt: new Date().toISOString()
+        }));
+      }
+      this.store.appendMany(events);
     } catch (error) {
       if (findRun(this.store, run.id)?.status === 'CANCELLED') return;
       const status = timedOut ? 'TIMED_OUT' : 'FAILED';

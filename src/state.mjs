@@ -13,6 +13,7 @@ export function initialState() {
     activeTaskId: defaultTask.id,
     members: [],
     runs: [],
+    sessions: {},
     tasks: [{ ...defaultTask, messages: [] }]
   };
 }
@@ -72,6 +73,17 @@ export function reduceEvent(state, event) {
       if (event.startedAt) run.startedAt = event.startedAt;
       if (event.finishedAt) run.finishedAt = event.finishedAt;
     }
+  }
+
+  if (event.type === 'SESSION_SET') {
+    nextState.sessions[event.memberName] = {
+      id: event.sessionId,
+      updatedAt: event.updatedAt
+    };
+  }
+
+  if (event.type === 'SESSION_CLEARED') {
+    delete nextState.sessions[event.memberName];
   }
 
   return nextState;

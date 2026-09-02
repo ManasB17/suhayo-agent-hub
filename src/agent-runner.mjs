@@ -34,48 +34,128 @@ function createPrompt(task, ownerMessage) {
   ].join('\n\n');
 }
 
-function commandFor(name, agent, prompt, approved) {
-  if (agent.adapter === 'claude' || name === 'claude') {
-    return {
-      command: agent.command,
-      arguments: [
-        '-p',
-        '--output-format',
-        'json',
-        '--permission-mode',
-        approved ? 'manual' : 'plan',
-        prompt
-      ]
-    };
+function permissionMode(task) {
+  return isApproved(task) ? 'implement' : 'investigate';
+}
+
+export function buildAgentCommand(name, agent, task, prompt, sessionId) {
+  const adapterId = agent.adapter ?? name;
+  const mode = permissionMode(task);
+
+  if (adapterId === 'claude') {
+    const argumentsList = [
+      '-p',
+      '--output-format',
+      'json',
+      '--permission-mode',
+      mode === 'implement' ? 'manual' : 'plan'
+    ];
+    if (sessionId) argumentsList.push('--resume', sessionId);
+    argumentsList.push(prompt);
+    return { command: agent.command, arguments: argumentsList };
   }
 
-  if (agent.adapter === 'codex' || name === 'codex') {
-    return {
-      command: agent.command,
-      arguments: [
-        'exec',
-        '-C',
-        agent.workspace,
-        '-s',
-        approved ? 'workspace-write' : 'read-only',
-        '-a',
-        'never',
-        '--json',
-        prompt
-      ]
-    };
+  if (adapterId === 'codex') {
+    const sandbox = mode === 'implement' ? 'workspace-write' : 'read-only';
+    const common = [
+      '-c',
+      'approval_policy="never"',
+      '-c',
+      `sandbox_mode="${sandbox}"`,
+      '--json'
+    ];
+    return sessionId
+      ? {
+          command: agent.command,
+          arguments: ['exec', 'resume', ...common, sessionId, prompt]
+        }
+      : {
+          command: agent.command,
+          arguments: ['exec', '-C', agent.workspace, '-s', sandbox, ...common, prompt]
+        };
+  }
+
+  if (adapterId === 'grok') {
+    const argumentsList = [
+      '--output-format',
+      'streaming-json',
+      '--permission-mode',
+      mode === 'implement' ? 'default' : 'plan'
+    ];
+    if (sessionId) argumentsList.push('--resume', sessionId);
+    argumentsList.push('--single', prompt);
+    return { command: agent.command, arguments: argumentsList };
   }
 
   return { command: agent.command, arguments: [prompt] };
 }
 
+function parseJsonLines(output) {
+  return output
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line)];
+      } catch {
+        return [];
+      }
+    });
+}
+
+function normalizeClaude(output) {
+  try {
+    const result = JSON.parse(output);
+    return {
+      output: result.result ?? result.message ?? output,
+      sessionId: result.session_id ?? result.sessionId
+    };
+  } catch {
+    return { output };
+  }
+}
+
+function normalizeEventStream(output) {
+  const events = parseJsonLines(output);
+  const sessionEvent = events.find((event) =>
+    event.thread_id || event.session_id || event.sessionId
+  );
+  const messages = events.flatMap((event) => {
+    if (event.type === 'item.completed' && event.item?.type === 'agent_message') {
+      return [event.item.text];
+    }
+    if (event.type === 'result' && typeof event.result === 'string') {
+      return [event.result];
+    }
+    if (event.type === 'assistant' && typeof event.message === 'string') {
+      return [event.message];
+    }
+    return [];
+  }).filter(Boolean);
+  return {
+    output: messages.join('\n\n') || output,
+    sessionId: sessionEvent?.thread_id
+      ?? sessionEvent?.session_id
+      ?? sessionEvent?.sessionId
+  };
+}
+
+export function normalizeAgentOutput(adapterId, output) {
+  if (adapterId === 'claude') return normalizeClaude(output);
+  if (adapterId === 'codex' || adapterId === 'grok') {
+    return normalizeEventStream(output);
+  }
+  return { output };
+}
+
 export function runAgent(name, agent, task, ownerMessage, options = {}) {
-  const approved = isApproved(task);
-  const specification = commandFor(
+  const adapterId = agent.adapter ?? name;
+  const specification = buildAgentCommand(
     name,
     agent,
+    task,
     createPrompt(task, ownerMessage),
-    approved
+    options.sessionId
   );
 
   return new Promise((resolve) => {
@@ -87,6 +167,12 @@ export function runAgent(name, agent, task, ownerMessage, options = {}) {
     });
     let standardOutput = '';
     let standardError = '';
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
 
     child.stdout.on('data', (chunk) => {
       standardOutput += chunk;
@@ -94,20 +180,19 @@ export function runAgent(name, agent, task, ownerMessage, options = {}) {
     child.stderr.on('data', (chunk) => {
       standardError += chunk;
     });
-    let settled = false;
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
-    };
     child.on('error', (error) => {
       finish({ ok: false, output: `Could not start @${name}: ${error.message}` });
     });
     child.on('close', (code) => {
-      const output = code === 0
+      const rawOutput = code === 0
         ? standardOutput.trim()
         : `${standardOutput}\n${standardError}`.trim();
-      finish({ ok: code === 0, output: output || 'No response returned.' });
+      const normalized = normalizeAgentOutput(adapterId, rawOutput);
+      finish({
+        ok: code === 0,
+        output: normalized.output || 'No response returned.',
+        sessionId: normalized.sessionId
+      });
     });
   });
 }
