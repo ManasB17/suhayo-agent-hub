@@ -4,6 +4,7 @@ import { extname, join, normalize } from 'node:path';
 import { loadConfig, projectRoot } from './config.mjs';
 import { EventStore } from './event-store.mjs';
 import { runAgent } from './agent-runner.mjs';
+import { parseAssignments, resolveAssignments } from './mentions.mjs';
 import { createEvent, createMessage } from './state.mjs';
 
 const contentTypes = {
@@ -36,17 +37,6 @@ function activeTask(state) {
     ?? state.tasks[0];
 }
 
-function mentionedAgents(text, agents) {
-  const normalizedText = text.toLowerCase();
-  if (normalizedText.includes('@both')) {
-    return Object.keys(agents).filter((name) => agents[name].enabled);
-  }
-
-  return Object.keys(agents).filter((name) =>
-    normalizedText.includes(`@${name.toLowerCase()}`)
-  );
-}
-
 function serveStatic(response, pathname, root) {
   const requestedPath = pathname === '/' ? 'index.html' : pathname.slice(1);
   const publicRoot = join(root, 'public');
@@ -62,10 +52,14 @@ function serveStatic(response, pathname, root) {
   return true;
 }
 
-async function dispatchAgents(store, settings, task, ownerMessage) {
-  const targets = mentionedAgents(ownerMessage.text, settings.agents ?? {});
-
-  if (!targets.length) {
+async function dispatchAssignments(
+  store,
+  task,
+  ownerMessage,
+  assignments,
+  runner
+) {
+  if (!assignments.length) {
     store.append(createEvent('MESSAGE_ADDED', {
       taskId: task.id,
       message: createMessage(
@@ -77,22 +71,57 @@ async function dispatchAgents(store, settings, task, ownerMessage) {
     return;
   }
 
-  for (const name of targets) {
-    const agent = settings.agents[name];
+  for (const assignment of assignments) {
+    const { configuration, instruction, name } = assignment;
+    if (!configuration) {
+      store.append(createEvent('MESSAGE_ADDED', {
+        taskId: task.id,
+        message: createMessage(
+          'system',
+          'error',
+          `@${name} is not a member of this room.`
+        )
+      }));
+      continue;
+    }
+    if (!configuration.enabled) {
+      store.append(createEvent('MESSAGE_ADDED', {
+        taskId: task.id,
+        message: createMessage(
+          'system',
+          'error',
+          `@${name} is a member but is not enabled.`
+        )
+      }));
+      continue;
+    }
+
+    const assignmentId = ownerMessage.id;
     store.append(createEvent('MESSAGE_ADDED', {
       taskId: task.id,
-      message: createMessage(name, 'status', 'Working from the current handoff...')
+      message: createMessage(
+        name,
+        'status',
+        `Working on: ${instruction}`,
+        { assignmentId }
+      )
     }));
 
-    runAgent(name, agent, store.readState().tasks.find(
+    const targetedMessage = {
+      ...ownerMessage,
+      text: instruction,
+      assignmentId
+    };
+    runner(name, configuration, store.readState().tasks.find(
       (candidate) => candidate.id === task.id
-    ), ownerMessage).then((result) => {
+    ), targetedMessage).then((result) => {
       store.append(createEvent('MESSAGE_ADDED', {
         taskId: task.id,
         message: createMessage(
           name,
           result.ok ? 'response' : 'error',
-          result.output
+          result.output,
+          { assignmentId }
         )
       }));
     });
@@ -103,6 +132,7 @@ export function createCoordinator(options = {}) {
   const root = options.root ?? projectRoot;
   const settings = options.config ?? loadConfig(root);
   const store = options.store ?? new EventStore(root);
+  const runner = options.runAgent ?? runAgent;
 
   return createServer(async (request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1');
@@ -121,7 +151,9 @@ export function createCoordinator(options = {}) {
           name,
           command: agent.command,
           enabled: agent.enabled,
-          workspace: agent.workspace
+          workspace: agent.workspace,
+          role: agent.role ?? 'member',
+          aliases: agent.aliases ?? []
         }));
         return sendJson(response, 200, { agents });
       }
@@ -132,6 +164,11 @@ export function createCoordinator(options = {}) {
           return sendJson(response, 400, { error: 'Message text is required.' });
         }
 
+        const parsedAssignments = parseAssignments(body.text.trim());
+        const assignments = resolveAssignments(
+          parsedAssignments,
+          settings.agents ?? {}
+        );
         const state = store.readState();
         const task = activeTask(state);
         const ownerMessage = createMessage('owner', 'message', body.text.trim());
@@ -139,7 +176,13 @@ export function createCoordinator(options = {}) {
           taskId: task.id,
           message: ownerMessage
         }));
-        await dispatchAgents(store, settings, task, ownerMessage);
+        await dispatchAssignments(
+          store,
+          task,
+          ownerMessage,
+          assignments,
+          runner
+        );
         return sendJson(response, 202, store.readState());
       }
 

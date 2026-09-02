@@ -80,3 +80,50 @@ test('coordinator records and clears owner approval', async () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('coordinator routes each quoted section to its own agent session', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'agent-hub-routing-'));
+  const calls = [];
+  const agents = {
+    claude: {
+      enabled: true,
+      command: 'claude',
+      workspace: root,
+      aliases: []
+    },
+    codex: {
+      enabled: true,
+      command: 'codex',
+      workspace: root,
+      aliases: ['chatgpt']
+    }
+  };
+  const server = createCoordinator({
+    root,
+    config: { port: 0, agents },
+    runAgent: async (name, configuration, task, message) => {
+      calls.push({ name, instruction: message.text });
+      return { ok: true, output: `${name} completed its assignment.` };
+    }
+  });
+
+  try {
+    const port = await listen(server);
+    const response = await fetch(`http://127.0.0.1:${port}/api/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: '@chatgpt "Review the code." @claude "Design the tests."'
+      })
+    });
+
+    assert.equal(response.status, 202);
+    assert.deepEqual(calls, [
+      { name: 'codex', instruction: 'Review the code.' },
+      { name: 'claude', instruction: 'Design the tests.' }
+    ]);
+  } finally {
+    await close(server);
+    rmSync(root, { recursive: true, force: true });
+  }
+});

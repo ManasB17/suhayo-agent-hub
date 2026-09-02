@@ -4,12 +4,18 @@
     "claude": {
       "enabled": false,
       "command": "claude",
-      "workspace": "D:\\trialroom-app"
+      "workspace": "D:\\trialroom-app",
+      "adapter": "claude",
+      "role": "architect",
+      "aliases": ["anthropic"]
     },
     "codex": {
       "enabled": false,
       "command": "codex",
-      "workspace": "D:\\trialroom-app"
+      "workspace": "D:\\trialroom-app",
+      "adapter": "codex",
+      "role": "engineer",
+      "aliases": ["chatgpt"]
     }
   },
   "sourceOfTruth": {

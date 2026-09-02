@@ -53,12 +53,13 @@ export function createEvent(type, properties = {}) {
   };
 }
 
-export function createMessage(author, type, text) {
+export function createMessage(author, type, text, properties = {}) {
   return {
     id: randomUUID(),
     author,
     type,
     text,
-    at: new Date().toISOString()
+    at: new Date().toISOString(),
+    ...properties
   };
 }
