@@ -30,4 +30,9 @@ test('public catalog omits executable arguments and login commands', () => {
       .authentication.loginMethods.map((method) => method.id),
     ['oauth', 'device']
   );
+  assert.deepEqual(
+    publicCatalog.find((adapter) => adapter.id === 'codex')
+      .authentication.loginMethods.map((method) => method.id),
+    ['oauth', 'device']
+  );
 });

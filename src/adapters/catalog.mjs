@@ -43,6 +43,7 @@ export const adapterCatalog = Object.freeze({
     authentication: {
       status: { arguments: ['login', 'status'], format: 'text' },
       login: [
+        { id: 'oauth', label: 'Sign in with ChatGPT', arguments: ['login'] },
         { id: 'device', label: 'Sign in with device code', arguments: ['login', '--device-auth'] }
       ]
     },

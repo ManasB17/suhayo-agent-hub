@@ -34,6 +34,10 @@ The final hardening pass also verifies bounded host-runner concurrency,
 provider-login UI presence, static-file path containment, and guarded recursive
 cleanup of temporary test files.
 
+The pre-PR review also verified current `codex login --help`; browser OAuth is
+the default Codex login method and device authentication remains available as a
+fallback.
+
 ## Safety
 
 The provider was a temporary local PowerShell fixture that emitted representative
