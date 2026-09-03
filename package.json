@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node agent-hub.mjs",
     "web": "node web-server.mjs",
-    "check": "node --check agent-hub.mjs && node --check web-server.mjs && node --check public/app.js && node --check src/config.mjs && node --check src/state.mjs && node --check src/event-store.mjs && node --check src/http-client.mjs && node --check src/mentions.mjs && node --check src/command-resolver.mjs && node --check src/agent-runner.mjs && node --check src/auth-service.mjs && node --check src/run-manager.mjs && node --check src/coordinator.mjs && node --check src/adapters/catalog.mjs && node --check src/adapters/validate.mjs && node --check test/policy.test.mjs",
+    "runner": "node host-runner.mjs",
+    "check": "node --check agent-hub.mjs && node --check web-server.mjs && node --check host-runner.mjs && node --check public/app.js && node --check src/config.mjs && node --check src/state.mjs && node --check src/event-store.mjs && node --check src/http-client.mjs && node --check src/mentions.mjs && node --check src/command-resolver.mjs && node --check src/agent-runner.mjs && node --check src/auth-service.mjs && node --check src/host-job-broker.mjs && node --check src/run-manager.mjs && node --check src/coordinator.mjs && node --check src/adapters/catalog.mjs && node --check src/adapters/validate.mjs && node --check test/policy.test.mjs",
     "test": "node --test"
   }
 }

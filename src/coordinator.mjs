@@ -11,6 +11,11 @@ import { getAdapter } from './adapters/catalog.mjs';
 import { AuthenticationService } from './auth-service.mjs';
 import { RunManager } from './run-manager.mjs';
 import { randomUUID } from 'node:crypto';
+import {
+  createRemoteRunner,
+  HostJobBroker,
+  RemoteAuthenticationService
+} from './host-job-broker.mjs';
 
 const contentTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -179,9 +184,13 @@ export function createCoordinator(options = {}) {
   const root = options.root ?? projectRoot;
   const settings = options.config ?? loadConfig(root);
   const store = options.store ?? new EventStore(root);
-  const runner = options.runAgent ?? runAgent;
-  const authentication = options.authentication
-    ?? new AuthenticationService(options.executeCommand);
+  const broker = options.jobBroker ?? (process.env.AGENT_HUB_REMOTE_RUNNER === 'true'
+    ? new HostJobBroker(process.env.AGENT_HUB_RUNNER_TOKEN)
+    : null);
+  const runner = options.runAgent ?? (broker ? createRemoteRunner(broker) : runAgent);
+  const authentication = options.authentication ?? (broker
+    ? new RemoteAuthenticationService(broker)
+    : new AuthenticationService(options.executeCommand));
   const runManager = options.runManager ?? new RunManager({
     store,
     runner,
@@ -203,8 +212,30 @@ export function createCoordinator(options = {}) {
     const url = new URL(request.url, 'http://127.0.0.1');
 
     try {
+      if (url.pathname.startsWith('/internal/runner/')) {
+        const bearer = request.headers.authorization?.replace(/^Bearer\s+/i, '');
+        if (!broker || !broker.authorized(bearer)) {
+          return sendJson(response, 401, { error: 'Unauthorized runner.' });
+        }
+        if (request.method === 'POST' && url.pathname === '/internal/runner/jobs/claim') {
+          return sendJson(response, 200, { job: broker.claim() });
+        }
+        const completion = url.pathname.match(
+          /^\/internal\/runner\/jobs\/([^/]+)\/complete$/
+        );
+        if (request.method === 'POST' && completion) {
+          const body = await readJsonBody(request);
+          const accepted = broker.complete(completion[1], body.result);
+          return sendJson(response, accepted ? 200 : 409, { accepted });
+        }
+        return sendJson(response, 404, { error: 'Runner route not found.' });
+      }
+
       if (request.method === 'GET' && url.pathname === '/health') {
-        return sendJson(response, 200, { status: 'ok' });
+        return sendJson(response, 200, {
+          status: 'ok',
+          runner: broker?.publicStatus() ?? { mode: 'in-process' }
+        });
       }
 
       if (request.method === 'GET' && url.pathname === '/api/state') {
