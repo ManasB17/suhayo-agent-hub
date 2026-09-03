@@ -60,6 +60,33 @@ Requirements:
 - Node.js 20 or later
 - An installed and authenticated agent CLI for each agent you enable
 
+### Docker and installable app
+
+Docker runs the coordinator and web room. A small native host runner executes
+the agent CLIs already installed and authenticated on the device; credentials
+are never mounted into the container.
+
+On Windows:
+
+```powershell
+.\scripts\start-agent-hub.ps1
+```
+
+On macOS or Linux:
+
+```sh
+./scripts/start-agent-hub.sh
+```
+
+The launcher verifies Docker, creates a device-local runner token, starts the
+container and native runner, waits for health, and opens the room. In a Chromium
+browser, use the browser's **Install app** action to create a standalone window
+and application icon. Docker Engine must be running when the app starts.
+
+The coordinator is published only on `127.0.0.1`. Provider commands execute on
+the host through authenticated, polling job requests; Docker receives no agent
+credential directory or host shell.
+
 The repository includes a safe starting `config.json`: Claude and Codex are registered but disabled. Enable an agent only after verifying its local command and workspace path. Machine-specific configuration is ignored by Git; `config.example.json` is the portable reference configuration.
 
 To invite another supported installed CLI from the terminal:
@@ -108,8 +135,8 @@ instruction. See [docs/OPERATING_MODEL.md](docs/OPERATING_MODEL.md).
 
 - Multiple named tasks and task selection
 - Packaged adapters for additional local agent CLIs
-- Native host runner paired with the Docker coordinator
-- Installable progressive web application and desktop launcher
+- Packaged desktop launchers and signed releases
+- PNG icon variants for operating systems that do not accept SVG PWA icons
 
 ## Contributing
 

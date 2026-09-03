@@ -22,6 +22,7 @@ const contentTypes = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.png': 'image/png',
   '.svg': 'image/svg+xml'
 };
@@ -447,10 +448,11 @@ export function createCoordinator(options = {}) {
 export function startCoordinator(options = {}) {
   const settings = options.config ?? loadConfig(options.root ?? projectRoot);
   const configuredPort = Number(process.env.AGENT_HUB_PORT ?? settings.port);
+  const bindAddress = process.env.AGENT_HUB_BIND ?? '127.0.0.1';
   const server = createCoordinator({ ...options, config: settings });
 
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(configuredPort, '127.0.0.1', () => resolve(server));
+    server.listen(configuredPort, bindAddress, () => resolve(server));
   });
 }

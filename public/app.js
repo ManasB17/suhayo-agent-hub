@@ -147,3 +147,7 @@ async function initialize() {
 }
 
 initialize().catch((error) => notify(error.message));
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/service-worker.js').catch(() => undefined);
+}

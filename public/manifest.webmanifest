@@ -1,0 +1,17 @@
+{
+  "name": "Suhayo Agent Hub",
+  "short_name": "Agent Hub",
+  "description": "A local, owner-gated room for installed coding agents.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4efe3",
+  "theme_color": "#163c39",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

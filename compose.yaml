@@ -1,0 +1,16 @@
+services:
+  coordinator:
+    build:
+      context: .
+    environment:
+      AGENT_HUB_BIND: 0.0.0.0
+      AGENT_HUB_REMOTE_RUNNER: "true"
+      AGENT_HUB_RUNNER_TOKEN: ${AGENT_HUB_RUNNER_TOKEN:?runner token is required}
+    ports:
+      - "127.0.0.1:${AGENT_HUB_PORT:-4317}:4317"
+    restart: unless-stopped
+    volumes:
+      - agent-hub-data:/app/data
+
+volumes:
+  agent-hub-data:
