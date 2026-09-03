@@ -43,13 +43,19 @@ function renderTask(state) {
 function renderMembers(members) {
   $('#members').innerHTML = members.map((member) => {
     const connected = member.authStatus === 'connected';
+    const adapter = adapters.find((candidate) => candidate.id === member.adapterId);
+    const loginMethod = adapter?.authentication.loginMethods[0];
     const stateLabel = member.enabled ? 'available' : member.authStatus.replaceAll('_', ' ');
     return `
       <article class="member-card" data-member="${escapeHtml(member.name)}">
         <div class="avatar">${escapeHtml(member.name.slice(0, 1).toUpperCase())}</div>
         <div class="member-copy"><strong>@${escapeHtml(member.name)}</strong><span>${escapeHtml(member.role)}</span><small class="${member.enabled ? 'online' : ''}">${escapeHtml(stateLabel)}</small></div>
         <div class="member-actions">
-          ${connected ? `<button data-action="${member.enabled ? 'disable' : 'enable'}">${member.enabled ? 'Pause' : 'Enable'}</button>` : '<button data-action="check">Check login</button>'}
+          ${connected
+            ? `<button data-action="${member.enabled ? 'disable' : 'enable'}">${member.enabled ? 'Pause' : 'Enable'}</button>`
+            : member.authStatus === 'login_required' && loginMethod
+              ? `<button data-action="login" data-method="${escapeHtml(loginMethod.id)}">Sign in</button>`
+              : '<button data-action="check">Check login</button>'}
         </div>
       </article>`;
   }).join('') || '<p class="no-members">Invite an installed agent to build your team.</p>';
@@ -91,6 +97,14 @@ $('#members').addEventListener('click', async (event) => {
       notify(result.status === 'connected'
         ? `@${name} is connected.`
         : `@${name} needs provider login.`);
+    } else if (action === 'login') {
+      notify(`Opening @${name}'s provider login...`);
+      const result = await api(`/api/members/${name}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: event.target.dataset.method })
+      });
+      notify(result.message);
     } else {
       await api(`/api/members/${name}/${action}`, { method: 'POST', body: '{}' });
     }

@@ -122,6 +122,17 @@ npm run check
 npm test
 ```
 
+With Docker Engine running on Windows, verify the complete coordinator-to-host
+boundary using an isolated temporary provider:
+
+```powershell
+npm run verify:docker
+```
+
+The verifier builds no product code, consumes no model tokens, and removes its
+temporary container and files when finished. Evidence for every implemented
+stage is retained under [docs/verification](docs/verification).
+
 The project uses Node.js built-ins and has no runtime npm dependencies. JavaScript uses ESM, descriptive names, 2-space indentation, and `node --check` as a baseline syntax gate. There is currently no Python code in this repository; any future Python contribution should follow PEP 8, use type annotations where practical, and include focused tests.
 
 ## Agent rules

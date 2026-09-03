@@ -127,3 +127,17 @@ test('coordinator routes each quoted section to its own agent session', async ()
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('static file serving rejects paths outside the public directory', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'agent-hub-static-'));
+  const server = createCoordinator({ root, config: { port: 0, agents: {} } });
+
+  try {
+    const port = await listen(server);
+    const response = await fetch(`http://127.0.0.1:${port}/../package.json`);
+    assert.equal(response.status, 404);
+  } finally {
+    await close(server);
+    rmSync(root, { recursive: true, force: true });
+  }
+});

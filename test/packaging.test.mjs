@@ -18,6 +18,7 @@ test('PWA declares standalone display and a local service worker', () => {
   assert.equal(manifest.start_url, '/');
   assert.equal(manifest.icons[0].purpose, 'any maskable');
   assert.match(read('public/app.js'), /serviceWorker\.register/);
+  assert.match(read('public/app.js'), /data-action="login"/);
 });
 
 test('launchers create a local token and start Docker plus native runner', () => {
@@ -29,4 +30,20 @@ test('launchers create a local token and start Docker plus native runner', () =>
     assert.match(launcher, /host-runner\.mjs/);
   }
   assert.match(windows, /WindowStyle = 'Hidden'/);
+});
+
+test('end-to-end verifier uses an isolated fake provider and two session turns', () => {
+  const verifier = read('scripts/verify-docker-runner.ps1');
+  assert.match(verifier, /fake-claude\.ps1/);
+  assert.match(verifier, /E2E_STARTED/);
+  assert.match(verifier, /E2E_RESUMED/);
+  assert.match(verifier, /Stop-Process/);
+  assert.match(verifier, /docker rm --force/);
+});
+
+test('native runner supports bounded parallel jobs', () => {
+  const runner = read('host-runner.mjs');
+  assert.match(runner, /AGENT_HUB_RUNNER_CONCURRENCY/);
+  assert.match(runner, /Promise\.race\(activeJobs\)/);
+  assert.match(runner, /Promise\.allSettled\(activeJobs\)/);
 });

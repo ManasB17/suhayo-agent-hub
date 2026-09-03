@@ -1,6 +1,6 @@
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { extname, isAbsolute, join, normalize, relative } from 'node:path';
 import { loadConfig, projectRoot } from './config.mjs';
 import { EventStore } from './event-store.mjs';
 import { runAgent } from './agent-runner.mjs';
@@ -99,8 +99,10 @@ function serveStatic(response, pathname, root) {
   const requestedPath = pathname === '/' ? 'index.html' : pathname.slice(1);
   const publicRoot = join(root, 'public');
   const filePath = normalize(join(publicRoot, requestedPath));
+  const relativePath = relative(publicRoot, filePath);
 
-  if (!filePath.startsWith(publicRoot) || !existsSync(filePath)) return false;
+  if (relativePath.startsWith('..') || isAbsolute(relativePath)) return false;
+  if (!existsSync(filePath)) return false;
   if (!statSync(filePath).isFile()) return false;
 
   response.writeHead(200, {
