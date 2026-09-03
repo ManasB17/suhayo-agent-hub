@@ -1,190 +1,210 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createInterface } from 'node:readline/promises';
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { createInterface } from 'node:readline/promises';
+import { loadConfig, projectRoot } from './src/config.mjs';
+import { requestJson, waitForCoordinator } from './src/http-client.mjs';
 
-const root = dirname(fileURLToPath(import.meta.url));
-const configPath = join(root, 'config.json');
-const exampleConfigPath = join(root, 'config.example.json');
-const dataPath = join(root, 'data', 'state.json');
+const settings = loadConfig();
+const port = Number(process.env.AGENT_HUB_PORT ?? settings.port);
+const baseUrl = `http://127.0.0.1:${port}`;
 
-const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
-const config = () => readJson(existsSync(configPath) ? configPath : exampleConfigPath);
-const saveConfig = (next) => writeFileSync(configPath, JSON.stringify(next, null, 2));
-
-function loadState() {
-  if (!existsSync(dataPath)) {
-    return { tasks: [{ id: 'vton-quality', name: 'VTON quality investigation', status: 'OWNER_REVIEW', approvedScope: '', messages: [] }] };
+async function ensureCoordinator() {
+  try {
+    await waitForCoordinator(baseUrl, 300);
+    return;
+  } catch {
+    try {
+      await requestJson(baseUrl, '/api/state');
+      throw new Error(
+        `An older Agent Hub is using port ${port}. Stop it or choose AGENT_HUB_PORT.`
+      );
+    } catch (error) {
+      if (error.message.startsWith('An older Agent Hub')) throw error;
+    }
+    const child = spawn(process.execPath, ['web-server.mjs'], {
+      cwd: projectRoot,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true
+    });
+    child.unref();
+    await waitForCoordinator(baseUrl);
   }
-  return readJson(dataPath);
 }
 
-function saveState(next) {
-  mkdirSync(dirname(dataPath), { recursive: true });
-  writeFileSync(dataPath, JSON.stringify(next, null, 2));
+function activeTask(state) {
+  return state.tasks.find((task) => task.id === state.activeTaskId)
+    ?? state.tasks[0];
 }
 
-function activeTask(nextState) {
-  return nextState.tasks[0];
-}
+function printTask(state) {
+  const task = activeTask(state);
+  console.log(`\n${task.name}`);
+  console.log(`State: ${task.status}`);
+  if (task.approvedScope) console.log(`Approved scope: ${task.approvedScope}`);
 
-function promptFor(task, ownerMessage) {
-  const approved = task.status === 'OWNER_APPROVED' || task.status === 'IMPLEMENTING';
-  const history = task.messages.slice(-12).map((message) => `${message.author}: ${message.text}`).join('\n');
-  return [
-    `You are collaborating in the local Suhayo Agent Hub on task: ${task.name}.`,
-    `Task status: ${task.status}.`,
-    approved ? `Owner-approved scope: ${task.approvedScope}` : 'This is design-only work. Do not modify code, config, infrastructure, branches, commits, deployments, paid API usage, EC2, or Vercel.',
-    'The owner is the sole approval authority. Separate facts, inferences, and unknowns. End with a compact handoff another agent can continue from.',
-    `Recent task history:\n${history}`,
-    `New owner message:\n${ownerMessage.text}`
-  ].join('\n\n');
-}
-
-function commandFor(name, agent, prompt, approved) {
-  if (agent.adapter === 'claude' || name === 'claude') {
-    return { command: agent.command, args: ['-p', '--output-format', 'json', '--permission-mode', approved ? 'manual' : 'plan', prompt] };
-  }
-  if (agent.adapter === 'codex' || name === 'codex') {
-    return { command: agent.command, args: ['exec', '-C', agent.workspace, '-s', approved ? 'workspace-write' : 'read-only', '-a', 'never', '--json', prompt] };
-  }
-  return { command: agent.command, args: [prompt] };
-}
-
-function invoke(name, agent, task, ownerMessage) {
-  const approved = task.status === 'OWNER_APPROVED' || task.status === 'IMPLEMENTING';
-  const spec = commandFor(name, agent, promptFor(task, ownerMessage), approved);
-  return new Promise((resolve) => {
-    const child = spawn(spec.command, spec.args, { cwd: agent.workspace, shell: process.platform === 'win32', windowsHide: true });
-    let output = '';
-    let error = '';
-    child.stdout.on('data', (chunk) => { output += chunk; });
-    child.stderr.on('data', (chunk) => { error += chunk; });
-    child.on('error', (err) => resolve(`Could not start @${name}: ${err.message}`));
-    child.on('close', (code) => resolve(code === 0 ? output.trim() : `${output}\n${error}`.trim()));
-  });
-}
-
-function targetsFor(text, agents) {
-  const lower = text.toLowerCase();
-  if (lower.includes('@both')) return Object.keys(agents).filter((name) => agents[name].enabled);
-  return Object.keys(agents).filter((name) => lower.includes(`@${name.toLowerCase()}`));
-}
-
-function printTask(task) {
-  console.log(`\n${task.name}\nState: ${task.status}${task.approvedScope ? `\nApproved scope: ${task.approvedScope}` : ''}`);
   if (task.messages.length) {
     console.log('\nRecent handoff:');
-    for (const message of task.messages.slice(-6)) console.log(`\n[${message.author}] ${message.text}`);
+    for (const message of task.messages.slice(-6)) {
+      console.log(`\n[${message.author}] ${message.text}`);
+    }
   }
 }
 
-function help() {
+function printHelp() {
   console.log(`
-Suhayo Agent Hub commands
+Agent Hub commands
 
-  @claude <request>       Route work to Claude Code
-  @codex <request>        Route work to Codex
-  @both <request>         Route work to every enabled agent
+  @claude "request"       Route work to one member
+  @codex "one" @claude "another"
   /status                 Show task state and recent handoff
-  /approve <exact scope>  Record owner approval and unlock implementation routing
-  /hold                   Return task to OWNER_REVIEW
-  /agents                 List configured agents
-  /agent add <name> <command>
-                           Add an installed CLI as a generic agent
-  /agent enable <name>    Enable a configured agent
-  /agent disable <name>   Disable an agent
-  /exit                   Leave the hub
-
-The history in data/state.json is the cross-agent handoff. Before approval,
-Claude runs plan-only and Codex runs read-only. The hub has no deployment path.
+  /approve <exact scope>  Record owner approval
+  /hold                   Return the task to OWNER_REVIEW
+  /members                List room members
+  /invite <name> <provider> <role> <workspace>
+  /auth <name>            Check provider login
+  /login <name> <method>  Start provider OAuth or device login
+  /enable <name>          Allow mention routing to a connected member
+  /disable <name>         Pause mention routing
+  /runs                   List recent run states
+  /cancel <run-id>        Cancel queued or running work
+  /reset-session <name>   Start fresh on that member's next assignment
+  /exit                   Leave the terminal client
 `);
 }
 
-async function handle(line) {
-  const input = line.trim();
-  if (!input) return true;
-  const nextState = loadState();
-  const task = activeTask(nextState);
-  const settings = config();
+function splitArguments(input) {
+  return [...input.matchAll(/"((?:\\.|[^"\\])*)"|(\S+)/g)]
+    .map((match) => match[1] ?? match[2]);
+}
 
-  if (input === '/help') return help();
-  if (input === '/status') return printTask(task);
-  if (input === '/agents') {
-    for (const [name, agent] of Object.entries(settings.agents ?? {})) console.log(`@${name}: ${agent.enabled ? 'enabled' : 'disabled'} (${agent.command})`);
+async function handleInput(input) {
+  if (input === '/help') {
+    printHelp();
     return true;
   }
+
+  if (input === '/status') {
+    printTask(await requestJson(baseUrl, '/api/state'));
+    return true;
+  }
+
+  if (input === '/members' || input === '/agents') {
+    const { members } = await requestJson(baseUrl, '/api/members');
+    for (const member of members) {
+      console.log(
+        `@${member.name}: ${member.role} | ${member.authStatus} | ${member.enabled ? 'enabled' : 'disabled'}`
+      );
+    }
+    return true;
+  }
+
+  if (input === '/runs') {
+    const { runs } = await requestJson(baseUrl, '/api/runs');
+    for (const run of runs.slice(-10)) {
+      console.log(`${run.id} | @${run.memberName} | ${run.status}`);
+    }
+    return true;
+  }
+
+  if (input.startsWith('/invite ')) {
+    const [name, adapterId, role, workspace] = splitArguments(
+      input.slice('/invite '.length)
+    );
+    if (!name || !adapterId || !role || !workspace) {
+      throw new Error('Usage: /invite <name> <provider> <role> <workspace>');
+    }
+    await requestJson(baseUrl, '/api/members/invite', {
+      method: 'POST',
+      body: JSON.stringify({ name, adapterId, role, workspace })
+    });
+    console.log(`@${name} invited. Check authentication before enabling.`);
+    return true;
+  }
+
+  const memberCommand = input.match(
+    /^\/(auth|enable|disable|reset-session)\s+([a-z][a-z0-9_-]{1,31})$/
+  );
+  if (memberCommand) {
+    const [, action, name] = memberCommand;
+    const path = action === 'auth'
+      ? `/api/members/${name}/auth/check`
+      : action === 'reset-session'
+        ? `/api/members/${name}/session/reset`
+        : `/api/members/${name}/${action}`;
+    const result = await requestJson(baseUrl, path, { method: 'POST', body: '{}' });
+    console.log(result.message ?? result.status ?? `@${name} updated.`);
+    return true;
+  }
+
+  const loginCommand = input.match(
+    /^\/login\s+([a-z][a-z0-9_-]{1,31})\s+(oauth|device)$/
+  );
+  if (loginCommand) {
+    const [, name, method] = loginCommand;
+    const result = await requestJson(baseUrl, `/api/members/${name}/auth/login`, {
+      method: 'POST',
+      body: JSON.stringify({ method })
+    });
+    console.log(result.message);
+    return true;
+  }
+
+  if (input.startsWith('/cancel ')) {
+    const runId = input.slice('/cancel '.length).trim();
+    const { run } = await requestJson(baseUrl, `/api/runs/${runId}/cancel`, {
+      method: 'POST', body: '{}'
+    });
+    console.log(`${run.id}: ${run.status}`);
+    return true;
+  }
+
   if (input === '/hold') {
-    task.status = 'OWNER_REVIEW';
-    task.approvedScope = '';
-    task.messages.push({ id: randomUUID(), author: 'owner', type: 'state', text: 'Task returned to OWNER_REVIEW.', at: new Date().toISOString() });
-    saveState(nextState);
-    console.log('Task is now OWNER_REVIEW.');
+    await requestJson(baseUrl, '/api/hold', { method: 'POST', body: '{}' });
+    console.log('Task returned to OWNER_REVIEW.');
     return true;
   }
+
   if (input.startsWith('/approve ')) {
     const scope = input.slice('/approve '.length).trim();
-    if (!scope) return console.log('Provide the exact approved scope after /approve.');
-    task.status = 'OWNER_APPROVED';
-    task.approvedScope = scope;
-    task.messages.push({ id: randomUUID(), author: 'owner', type: 'approval', text: `OWNER_APPROVED: ${scope}`, at: new Date().toISOString() });
-    saveState(nextState);
-    console.log('Owner approval recorded. Implementation routing is now enabled for this exact scope.');
+    await requestJson(baseUrl, '/api/approve', {
+      method: 'POST',
+      body: JSON.stringify({ scope })
+    });
+    console.log('Owner approval recorded.');
     return true;
   }
-  if (input.startsWith('/agent add ')) {
-    const [, , name, command] = input.split(/\s+/, 4);
-    if (!name || !command) return console.log('Usage: /agent add <name> <command>');
-    settings.agents ??= {};
-    settings.agents[name.toLowerCase()] = { enabled: false, command, workspace: settings.agents.claude?.workspace ?? process.cwd(), adapter: 'generic' };
-    saveConfig(settings);
-    console.log(`@${name.toLowerCase()} added and disabled. Use /agent enable ${name.toLowerCase()} after verifying its CLI login.`);
-    return true;
-  }
-  if (input.startsWith('/agent enable ') || input.startsWith('/agent disable ')) {
-    const [command, , name] = input.split(/\s+/, 3);
-    const agent = settings.agents?.[name?.toLowerCase()];
-    if (!agent) return console.log(`Unknown agent: ${name ?? ''}`);
-    agent.enabled = command === '/agent' ? input.includes(' enable ') : false;
-    saveConfig(settings);
-    console.log(`@${name.toLowerCase()} is ${agent.enabled ? 'enabled' : 'disabled'}.`);
-    return true;
-  }
+
   if (input === '/exit' || input === '/quit') return false;
 
-  const ownerMessage = { id: randomUUID(), author: 'owner', type: 'message', text: input, at: new Date().toISOString() };
-  task.messages.push(ownerMessage);
-  const targets = targetsFor(input, settings.agents ?? {});
-  if (!targets.length) {
-    task.messages.push({ id: randomUUID(), author: 'system', type: 'note', text: 'Request recorded. Mention an enabled agent to route it.', at: new Date().toISOString() });
-    saveState(nextState);
-    console.log('Recorded. Mention @claude, @codex, or @both to route work.');
-    return true;
-  }
-  saveState(nextState);
-  for (const name of targets) {
-    const agent = settings.agents[name];
-    if (!agent.enabled) {
-      console.log(`@${name} is disabled; request recorded only.`);
-      continue;
-    }
-    console.log(`\n@${name} is working...`);
-    const response = await invoke(name, agent, task, ownerMessage);
-    const current = loadState();
-    activeTask(current).messages.push({ id: randomUUID(), author: name, type: 'response', text: response || 'No response returned.', at: new Date().toISOString() });
-    saveState(current);
-    console.log(`\n@${name}\n${response || 'No response returned.'}\n`);
-  }
+  await requestJson(baseUrl, '/api/messages', {
+    method: 'POST',
+    body: JSON.stringify({ text: input })
+  });
+  console.log('Message recorded. Agent responses will appear in this shared room.');
   return true;
 }
 
-console.log('Suhayo Agent Hub - local owner-controlled agent desk');
-console.log('Type /help for commands. Type /status to view the current handoff.');
-const rl = createInterface({ input: process.stdin, output: process.stdout });
-while (true) {
-  const line = await rl.question('\nsuhayo> ');
-  if (!(await handle(line))) break;
+await ensureCoordinator();
+console.log('Agent Hub local command center');
+console.log('Type /help for commands.');
+
+if (!process.stdin.isTTY) {
+  const commands = readFileSync(0, 'utf8').split(/\r?\n/).filter(Boolean);
+  for (const command of commands) {
+    if (!(await handleInput(command.trim()))) break;
+  }
+} else {
+  const terminal = createInterface({ input: process.stdin, output: process.stdout });
+  while (true) {
+    const input = (await terminal.question('\nagent-hub> ')).trim();
+    if (!input) continue;
+
+    try {
+      if (!(await handleInput(input))) break;
+    } catch (error) {
+      console.error(error.message);
+    }
+  }
+  terminal.close();
 }
-rl.close();

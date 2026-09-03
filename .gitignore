@@ -1,6 +1,8 @@
 # Local configuration and task data
 config.json
 data/
+.agent-hub-token
+.host-runner.pid
 
 # Node.js
 node_modules/

@@ -1,0 +1,7 @@
+.git
+.agent-hub-token
+.host-runner.pid
+config.json
+data
+node_modules
+npm-debug.log*

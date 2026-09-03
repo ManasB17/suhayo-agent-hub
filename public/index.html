@@ -1,1 +1,83 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Suhayo Agent Hub</title><link rel="stylesheet" href="/app.css"></head><body><main><header><div><p>SUHAYO / LOCAL AGENT DESK</p><h1 id="name">VTON quality investigation</h1><small id="status"></small></div><button id="approve">Approve implementation scope</button></header><section id="messages"></section><form id="composer"><textarea id="text" placeholder="@claude investigate the evidence&#10;@codex challenge the proposal&#10;@both prepare my decision" rows="5"></textarea><footer><span>One shared history. Use @claude, @codex, or @both.</span><button>Send</button></footer></form></main><dialog id="dialog"><form id="approval"><p>OWNER GATE</p><h2>Approve an exact scope</h2><textarea id="scope" rows="5" placeholder="Implement backend candidate evaluation only. No deploy or paid production calls."></textarea><footer><button type="button" id="cancel">Cancel</button><button>Record approval</button></footer></form></dialog><script src="/app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#163c39">
+  <title>Suhayo Agent Hub</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main class="shell">
+    <aside class="team-panel">
+      <div class="brand">
+        <span class="brand-mark">S</span>
+        <div><strong>Suhayo</strong><small>Local Agent Hub</small></div>
+      </div>
+      <div class="team-heading">
+        <span>Room members</span>
+        <button class="icon-button" id="invite-open" title="Invite an agent">+</button>
+      </div>
+      <section id="members" class="members" aria-live="polite"></section>
+      <div class="local-note">
+        <span class="pulse"></span>
+        Local coordinator
+        <small>Nothing deploys from this room</small>
+      </div>
+    </aside>
+
+    <section class="room">
+      <header>
+        <div>
+          <p class="eyebrow">CURRENT TASK</p>
+          <h1 id="name">VTON quality investigation</h1>
+          <div class="task-meta">
+            <span id="status"></span>
+            <span id="run-summary"></span>
+          </div>
+        </div>
+        <button class="approval-button" id="approve">Review approval gate</button>
+      </header>
+
+      <section id="messages" class="messages" aria-live="polite"></section>
+
+      <form id="composer" class="composer">
+        <label for="text">Message the team</label>
+        <textarea id="text" rows="4" placeholder='@chatgpt "Review the approach." @claude "Investigate the evidence."'></textarea>
+        <footer>
+          <span>Use a quoted section for each @member.</span>
+          <button>Send assignment</button>
+        </footer>
+      </form>
+    </section>
+  </main>
+
+  <dialog id="approval-dialog">
+    <form id="approval">
+      <p class="eyebrow">OWNER GATE</p>
+      <h2>Approve an exact scope</h2>
+      <p>Agents remain in read-only investigation mode until this scope is recorded.</p>
+      <textarea id="scope" rows="5" placeholder="Implement the approved local change only. No deployment or production access."></textarea>
+      <footer><button type="button" class="quiet" data-close>Cancel</button><button>Record approval</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="invite-dialog">
+    <form id="invite">
+      <p class="eyebrow">INVITE LOCAL AGENT</p>
+      <h2>Add a room member</h2>
+      <label>Member name<input id="member-name" required pattern="[a-z][a-z0-9_-]{1,31}" placeholder="grok"></label>
+      <label>Installed provider<select id="adapter" required></select></label>
+      <label>Role<input id="role" required placeholder="architect"></label>
+      <label>Working repository<input id="workspace" required value="D:\trialroom-app"></label>
+      <p class="form-note">The member starts disabled. Check its provider login, then enable it.</p>
+      <footer><button type="button" class="quiet" data-close>Cancel</button><button>Invite member</button></footer>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
